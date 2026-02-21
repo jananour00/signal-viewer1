@@ -8,10 +8,8 @@ from typing import Optional, Dict, List
 from ..models.stock_model import (
     StockDataFetcher,
     StockPredictor,
-    fetch_stock_data,
-    get_stock_info,
-    predict_stock,
-    get_technical_indicators
+    TechnicalIndicatorCalculator,
+    LSTMPredictor
 )
 
 
@@ -21,6 +19,8 @@ class StockService:
     def __init__(self):
         self.fetcher = StockDataFetcher()
         self.predictor = StockPredictor()
+        self.technical_calculator = TechnicalIndicatorCalculator()
+        self.lstm_predictor = LSTMPredictor()
     
     def get_stock_data(self, symbol: str, period: str = '1y', 
                       interval: str = '1d') -> Dict:
@@ -36,7 +36,7 @@ class StockService:
             Dictionary with stock data
         """
         try:
-            df = self.fetcher.fetch_stock_data(symbol, period, interval)
+            df = self.fetcher.fetch_data(symbol, period, interval)
             
             if df is None or df.empty:
                 return {'error': f'No data found for symbol: {symbol}'}
@@ -50,7 +50,12 @@ class StockService:
                 'dates': df.index.strftime('%Y-%m-%d').tolist() if hasattr(df.index, 'strftime') else [str(d) for d in df.index],
                 'columns': df.columns.tolist(),
                 'latest_price': float(df['Close'].iloc[-1]) if 'Close' in df.columns else None,
-                'latest_volume': int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else None
+                'latest_volume': int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else None,
+                'high': float(df['High'].iloc[-1]) if 'High' in df.columns else None,
+                'low': float(df['Low'].iloc[-1]) if 'Low' in df.columns else None,
+                'open': float(df['Open'].iloc[-1]) if 'Open' in df.columns else None,
+                'change': float(df['Close'].iloc[-1] - df['Close'].iloc[-2]) if len(df) > 1 and 'Close' in df.columns else None,
+                'change_percent': float((df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100) if len(df) > 1 and 'Close' in df.columns else None
             }
         except Exception as e:
             return {'error': str(e)}
@@ -68,7 +73,7 @@ class StockService:
     def get_stock_info(self, symbol: str) -> Dict:
         """Get current stock information."""
         try:
-            return self.fetcher.get_stock_info(symbol)
+            return self.fetcher.get_info(symbol)
         except Exception as e:
             return {'error': str(e)}
     
@@ -91,35 +96,41 @@ class StockService:
         
         Args:
             symbol: Stock ticker
-            method: Prediction method ('sma', 'exp', 'lr')
+            method: Prediction method ('sma', 'exp', 'lr', 'lstm')
             n_days: Number of days to predict
             
         Returns:
             Dictionary with predictions
         """
         try:
-            df = self.fetcher.fetch_stock_data(symbol)
+            df = self.fetcher.fetch_data(symbol)
             
             if df is None or df.empty:
                 return {'error': f'No data found for symbol: {symbol}'}
             
-            return self.predictor.predict_next_days(
-                df, 
-                method=method, 
-                n_days=n_days
-            )
+            if method == 'lstm':
+                # Use LSTM predictor
+                predictions = self.lstm_predictor.predict_with_confidence(df, n_days)
+                return predictions
+            else:
+                # Use simple predictor
+                return self.predictor.predict_next_days(
+                    df, 
+                    method=method, 
+                    n_days=n_days
+                )
         except Exception as e:
             return {'error': str(e)}
     
     def get_technical_analysis(self, symbol: str) -> Dict:
         """Get technical indicators for a stock."""
         try:
-            df = self.fetcher.fetch_stock_data(symbol)
+            df = self.fetcher.fetch_data(symbol)
             
             if df is None or df.empty:
                 return {'error': f'No data found for symbol: {symbol}'}
             
-            indicators = self.predictor.calculate_technical_indicators(df)
+            indicators = self.technical_calculator.calculate_all(df)
             
             # Get recent price data
             recent_data = df.tail(30).to_dict(orient='records')
@@ -137,7 +148,7 @@ class StockService:
         comparison = {}
         
         for symbol in symbols:
-            df = self.fetcher.fetch_stock_data(symbol, period)
+            df = self.fetcher.fetch_data(symbol, period)
             if df is not None and not df.empty:
                 close_prices = df['Close']
                 comparison[symbol] = {
@@ -158,7 +169,7 @@ class StockService:
         
         summary = {}
         for index in major_indices:
-            df = self.fetcher.fetch_stock_data(index)
+            df = self.fetcher.fetch_data(index)
             if df is not None and not df.empty:
                 close = df['Close']
                 summary[index] = {

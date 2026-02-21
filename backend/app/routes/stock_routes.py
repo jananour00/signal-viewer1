@@ -149,8 +149,8 @@ def predict_stock(symbol):
     method = request.args.get('method', 'sma')
     n_days = request.args.get('n_days', type=int, default=7)
     
-    if method not in ['sma', 'exp', 'lr']:
-        return jsonify({'error': 'Invalid method. Choose from: sma, exp, lr'}), 400
+    if method not in ['sma', 'exp', 'lr', 'lstm']:
+        return jsonify({'error': 'Invalid method. Choose from: sma, exp, lr, lstm'}), 400
     
     if n_days < 1 or n_days > 30:
         return jsonify({'error': 'n_days must be between 1 and 30'}), 400
