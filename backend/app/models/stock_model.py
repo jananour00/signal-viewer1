@@ -4,6 +4,7 @@ Stock Market Models for Signal Processing
 - Currency data
 - Minerals/commodities data
 - Time series prediction
+- AI/LSTM prediction
 """
 
 import numpy as np
@@ -11,6 +12,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 import warnings
+import os
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import json
 
 warnings.filterwarnings('ignore')
 
@@ -20,6 +26,17 @@ try:
     YFINANCE_AVAILABLE = True
 except ImportError:
     YFINANCE_AVAILABLE = False
+
+# Try to import TensorFlow/Keras for LSTM, handle if not available
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense, Dropout
+    from tensorflow.keras.callbacks import EarlyStopping
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
+    print("TensorFlow not available. AI predictions will use fallback methods.")
 
 
 class StockDataFetcher:
@@ -35,32 +52,32 @@ class StockDataFetcher:
     }
     
     DEFAULT_CURRENCIES = {
-        'major': ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD'],
-        'emerging': ['USD/MXN', 'USD/BRL', 'USD/INR', 'USD/ZAR', 'USD/RUB']
+        'major': ['EURUSD=X', 'GBPUSD=X', 'JPY=X', 'CHF=X', 'AUDUSD=X'],
+        'emerging': ['MXN=X', 'BRL=X', 'INR=X', 'ZAR=X', 'RUB=X']
     }
     
     DEFAULT_MINERALS = {
         'precious': ['GC=F', 'SI=F', 'PL=F', 'PA=F'],  # Gold, Silver, Platinum, Palladium
-        'industrial': ['CL=F', 'NG=F', 'HG=F', 'ZC=F'],  # Oil, Natural Gas, Copper, Corn
-        'base': ['HG=F', 'ALU=F', 'ZINC=F', 'NICKEL=F']  # Copper, Aluminum, Zinc, Nickel
+        'energy': ['CL=F', 'NG=F', 'RB=F', 'HO=F'],  # Oil, Natural Gas, Gasoline, Heating Oil
+        'agriculture': ['ZC=F', 'ZW=F', 'ZS=F', 'KC=F']  # Corn, Wheat, Soybeans, Coffee
     }
     
     def __init__(self):
         self.cache = {}
         self.cache_timeout = 300  # 5 minutes
     
-    def fetch_stock_data(self, symbol: str, period: str = '1y', 
+    def fetch_data(self, symbol: str, period: str = '6mo', 
                         interval: str = '1d') -> Optional[pd.DataFrame]:
         """
-        Fetch stock data for a given symbol.
+        Fetch data for a given symbol.
         
         Args:
-            symbol: Stock ticker symbol (e.g., 'AAPL', 'GOOGL')
+            symbol: Ticker symbol
             period: Data period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
             interval: Data interval (1m, 2m, 5m, 15m, 30m, 60m, 1d, 1wk, 1mo)
             
         Returns:
-            DataFrame with stock data or None if failed
+            DataFrame with data or None if failed
         """
         if not YFINANCE_AVAILABLE:
             return self._generate_sample_data(symbol, period, interval)
@@ -81,21 +98,21 @@ class StockDataFetcher:
             return df
             
         except Exception as e:
-            print(f"Error fetching stock data for {symbol}: {e}")
+            print(f"Error fetching data for {symbol}: {e}")
             return self._generate_sample_data(symbol, period, interval)
     
-    def fetch_multiple_stocks(self, symbols: List[str], period: str = '1y',
+    def fetch_multiple(self, symbols: List[str], period: str = '6mo',
                              interval: str = '1d') -> Dict[str, pd.DataFrame]:
-        """Fetch data for multiple stocks."""
+        """Fetch data for multiple symbols."""
         result = {}
         for symbol in symbols:
-            df = self.fetch_stock_data(symbol, period, interval)
+            df = self.fetch_data(symbol, period, interval)
             if df is not None:
                 result[symbol] = df
         return result
     
-    def get_stock_info(self, symbol: str) -> Dict:
-        """Get current stock information."""
+    def get_info(self, symbol: str) -> Dict:
+        """Get current symbol information."""
         if not YFINANCE_AVAILABLE:
             return {'symbol': symbol, 'name': f'Sample {symbol}', 'price': 100.0}
         
@@ -109,9 +126,7 @@ class StockDataFetcher:
                 'change': info.get('regularMarketChange', 0),
                 'change_percent': info.get('regularMarketChangePercent', 0),
                 'volume': info.get('regularMarketVolume', 0),
-                'market_cap': info.get('marketCap', 0),
-                'pe_ratio': info.get('trailingPE', 0),
-                'dividend_yield': info.get('dividendYield', 0)
+                'market_cap': info.get('marketCap', 0)
             }
         except:
             return {'symbol': symbol, 'name': f'Sample {symbol}', 'price': 100.0}
@@ -159,192 +174,787 @@ class StockDataFetcher:
         return df
 
 
-class StockPredictor:
-    """Predict stock prices using various methods."""
+class MarketVisualizer:
+    """Create interactive visualizations for market data."""
+    
+    @staticmethod
+    def create_price_chart(data: Dict[str, pd.DataFrame], 
+                           title: str = "Market Data") -> go.Figure:
+        """Create price chart for multiple symbols."""
+        fig = go.Figure()
+        
+        for symbol, df in data.items():
+            if df is not None and not df.empty:
+                fig.add_trace(go.Scatter(
+                    x=df.index,
+                    y=df['Close'],
+                    mode='lines',
+                    name=symbol,
+                    line=dict(width=2)
+                ))
+        
+        fig.update_layout(
+            title=title,
+            xaxis_title="Date",
+            yaxis_title="Price",
+            hovermode='x unified',
+            template='plotly_dark'
+        )
+        
+        return fig
+    
+    @staticmethod
+    def create_candlestick_chart(df: pd.DataFrame, 
+                                 symbol: str) -> go.Figure:
+        """Create candlestick chart for a single symbol."""
+        fig = go.Figure(data=[go.Candlestick(
+            x=df.index,
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name=symbol
+        )])
+        
+        fig.update_layout(
+            title=f'{symbol} - Candlestick Chart',
+            xaxis_title="Date",
+            yaxis_title="Price",
+            template='plotly_dark',
+            xaxis_rangeslider_visible=False
+        )
+        
+        return fig
+    
+    @staticmethod
+    def create_technical_chart(df: pd.DataFrame, 
+                               indicators: Dict) -> go.Figure:
+        """Create chart with technical indicators."""
+        fig = make_subplots(
+            rows=3, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.05,
+            row_heights=[0.5, 0.25, 0.25],
+            subplot_titles=('Price & Indicators', 'Volume', 'RSI')
+        )
+        
+        # Price and moving averages
+        fig.add_trace(go.Candlestick(
+            x=df.index,
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name='Price',
+            showlegend=False
+        ), row=1, col=1)
+        
+        # Add moving averages
+        if 'sma_20' in indicators and indicators['sma_20']:
+            fig.add_trace(go.Scatter(
+                x=df.index[-len(indicators['sma_20']):],
+                y=indicators['sma_20'],
+                name='SMA 20',
+                line=dict(color='orange', width=1)
+            ), row=1, col=1)
+        
+        if 'sma_50' in indicators and indicators['sma_50']:
+            fig.add_trace(go.Scatter(
+                x=df.index[-len(indicators['sma_50']):],
+                y=indicators['sma_50'],
+                name='SMA 50',
+                line=dict(color='blue', width=1)
+            ), row=1, col=1)
+        
+        # Volume
+        fig.add_trace(go.Bar(
+            x=df.index,
+            y=df['Volume'],
+            name='Volume',
+            marker_color='lightblue'
+        ), row=2, col=1)
+        
+        # RSI
+        if 'rsi' in indicators and indicators['rsi']:
+            rsi_data = indicators['rsi']
+            rsi_dates = df.index[-len(rsi_data):]
+            
+            fig.add_trace(go.Scatter(
+                x=rsi_dates,
+                y=rsi_data,
+                name='RSI',
+                line=dict(color='purple', width=2)
+            ), row=3, col=1)
+            
+            # Add overbought/oversold lines
+            fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+        
+        fig.update_layout(
+            title='Technical Analysis Dashboard',
+            template='plotly_dark',
+            height=800,
+            showlegend=True,
+            xaxis_rangeslider_visible=False
+        )
+        
+        return fig
+    
+    @staticmethod
+    def create_comparison_chart(data: Dict[str, pd.DataFrame],
+                               benchmark: str = 'SPY') -> go.Figure:
+        """Create normalized comparison chart."""
+        fig = go.Figure()
+        
+        # Normalize all series to 100 at start
+        for symbol, df in data.items():
+            if df is not None and not df.empty:
+                normalized = (df['Close'] / df['Close'].iloc[0]) * 100
+                fig.add_trace(go.Scatter(
+                    x=df.index,
+                    y=normalized,
+                    mode='lines',
+                    name=symbol,
+                    line=dict(width=2)
+                ))
+        
+        fig.update_layout(
+            title='Performance Comparison (Normalized to 100)',
+            xaxis_title="Date",
+            yaxis_title="Relative Performance",
+            hovermode='x unified',
+            template='plotly_dark'
+        )
+        
+        return fig
+    
+    @staticmethod
+    def create_prediction_chart(historical: pd.DataFrame,
+                               predictions: Dict) -> go.Figure:
+        """Create chart with historical data and predictions."""
+        fig = go.Figure()
+        
+        # Historical data
+        fig.add_trace(go.Scatter(
+            x=historical.index,
+            y=historical['Close'],
+            mode='lines',
+            name='Historical',
+            line=dict(color='blue', width=2)
+        ))
+        
+        # Predictions
+        pred_dates = pd.to_datetime(predictions['dates'])
+        
+        if 'upper_bound' in predictions and 'lower_bound' in predictions:
+            # Confidence interval
+            fig.add_trace(go.Scatter(
+                x=pred_dates,
+                y=predictions['upper_bound'],
+                mode='lines',
+                name='Upper Bound',
+                line=dict(width=0),
+                showlegend=False
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=pred_dates,
+                y=predictions['lower_bound'],
+                mode='lines',
+                name='Lower Bound',
+                line=dict(width=0),
+                fill='tonexty',
+                fillcolor='rgba(255, 0, 0, 0.2)',
+                showlegend=False
+            ))
+        
+        # Prediction line
+        fig.add_trace(go.Scatter(
+            x=pred_dates,
+            y=predictions['predictions'],
+            mode='lines+markers',
+            name='Predictions',
+            line=dict(color='red', width=2, dash='dash'),
+            marker=dict(size=8)
+        ))
+        
+        fig.update_layout(
+            title=f"Price Predictions - {predictions['method'].upper()}",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            hovermode='x unified',
+            template='plotly_dark'
+        )
+        
+        return fig
+
+
+class LSTMPredictor:
+    """AI-based prediction using LSTM neural network."""
     
     def __init__(self):
-        self.models = {}
+        self.model = None
         self.scaler = None
+        self.lookback = 60
+        self.trained = False
     
-    def prepare_data(self, data: pd.DataFrame, lookback: int = 30) -> Tuple:
-        """
-        Prepare data for prediction.
-        
-        Args:
-            data: DataFrame with stock data
-            lookback: Number of days to use for prediction
-            
-        Returns:
-            Tuple of (X, y) arrays
-        """
-        if 'Close' not in data.columns:
-            raise ValueError("Data must contain 'Close' column")
-        
-        close_prices = data['Close'].values
-        
+    def _prepare_data(self, data: np.ndarray, lookback: int = 60) -> Tuple:
+        """Prepare data for LSTM model."""
         X, y = [], []
-        for i in range(lookback, len(close_prices)):
-            X.append(close_prices[i-lookback:i])
-            y.append(close_prices[i])
-        
+        for i in range(lookback, len(data)):
+            X.append(data[i-lookback:i])
+            y.append(data[i])
         return np.array(X), np.array(y)
     
-    def predict_simple_moving_average(self, data: pd.DataFrame, 
-                                     window: int = 20) -> np.ndarray:
+    def _normalize_data(self, data: np.ndarray) -> Tuple:
+        """Normalize data using min-max scaling."""
+        min_val = np.min(data)
+        max_val = np.max(data)
+        if max_val - min_val == 0:
+            return data, lambda x: x, lambda x: x
+        scaled = (data - min_val) / (max_val - min_val)
+        return scaled, min_val, max_val
+    
+    def _build_model(self, lookback: int = 60) -> Sequential:
+        """Build LSTM model architecture."""
+        if not TF_AVAILABLE:
+            return None
+        
+        model = Sequential([
+            LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
+            Dropout(0.2),
+            LSTM(50, return_sequences=False),
+            Dropout(0.2),
+            Dense(25),
+            Dense(1)
+        ])
+        model.compile(optimizer='adam', loss='mean_squared_error')
+        return model
+    
+    def train(self, data: pd.DataFrame, epochs: int = 50, 
+              batch_size: int = 32, lookback: int = 60) -> Dict:
         """
-        Simple moving average prediction.
+        Train LSTM model on data.
         
         Args:
-            data: DataFrame with stock data
-            window: Moving average window size
+            data: DataFrame with data
+            epochs: Number of training epochs
+            batch_size: Batch size for training
+            lookback: Number of time steps to look back
             
         Returns:
-            Array of predicted prices
+            Training history
         """
-        if 'Close' not in data.columns:
-            raise ValueError("Data must contain 'Close' column")
-        
-        close_prices = data['Close'].values
-        sma = pd.Series(close_prices).rolling(window=window).mean().values
-        
-        # Predict next day as the last SMA value
-        predictions = np.full(len(close_prices), sma[-1])
-        
-        return predictions
-    
-    def predict_exponential_smoothing(self, data: pd.DataFrame, 
-                                     alpha: float = 0.3) -> np.ndarray:
-        """
-        Exponential smoothing prediction.
-        
-        Args:
-            data: DataFrame with stock data
-            alpha: Smoothing factor (0-1)
-            
-        Returns:
-            Array of predicted prices
-        """
-        if 'Close' not in data.columns:
-            raise ValueError("Data must contain 'Close' column")
-        
-        close_prices = data['Close'].values
-        n = len(close_prices)
-        
-        # Calculate exponential smoothing
-        smoothed = np.zeros(n)
-        smoothed[0] = close_prices[0]
-        
-        for i in range(1, n):
-            smoothed[i] = alpha * close_prices[i] + (1 - alpha) * smoothed[i-1]
-        
-        # Predict next value
-        predictions = np.full(n, smoothed[-1])
-        
-        return predictions
-    
-    def predict_linear_regression(self, data: pd.DataFrame, 
-                                 lookback: int = 30) -> np.ndarray:
-        """
-        Linear regression prediction.
-        
-        Args:
-            data: DataFrame with stock data
-            lookback: Number of days to use for features
-            
-        Returns:
-            Array of predicted prices
-        """
-        from sklearn.linear_model import LinearRegression
+        if not TF_AVAILABLE:
+            return {'error': 'TensorFlow not available'}
         
         if 'Close' not in data.columns:
-            raise ValueError("Data must contain 'Close' column")
+            return {'error': 'Data must contain Close column'}
         
-        close_prices = data['Close'].values
-        n = len(close_prices)
+        close_prices = data['Close'].values.reshape(-1, 1)
         
-        if n < lookback + 1:
-            return np.full(n, close_prices[-1])
+        # Normalize data
+        scaled_data, self.min_val, self.max_val = self._normalize_data(close_prices)
         
-        # Prepare data
-        X, y = self.prepare_data(data, lookback)
+        # Prepare training data
+        X, y = self._prepare_data(scaled_data, lookback)
+        self.lookback = lookback
         
-        # Fit model
-        model = LinearRegression()
-        model.fit(X[:-1], y[:-1])
+        if len(X) < 50:
+            return {'error': 'Insufficient data for training'}
         
-        # Predict
-        predictions = model.predict(X)
+        # Build and train model
+        self.model = self._build_model(lookback)
+        if self.model is None:
+            return {'error': 'Failed to build model'}
         
-        # Pad the beginning
-        full_predictions = np.zeros(n)
-        full_predictions[:] = np.nan
-        full_predictions[lookback:] = predictions
+        # Split data for validation
+        split = int(len(X) * 0.8)
+        X_train, X_val = X[:split], X[split:]
+        y_train, y_val = y[:split], y[split:]
         
-        # Fill NaN with last known value
-        full_predictions = pd.Series(full_predictions).fillna(method='bfill').values
+        early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
         
-        return full_predictions
+        history = self.model.fit(
+            X_train, y_train,
+            epochs=epochs,
+            batch_size=batch_size,
+            validation_data=(X_val, y_val),
+            callbacks=[early_stop],
+            verbose=0
+        )
+        
+        self.trained = True
+        
+        # Calculate training metrics
+        train_loss = float(np.min(history.history['loss']))
+        val_loss = float(np.min(history.history['val_loss']))
+        
+        return {
+            'trained': True,
+            'epochs_trained': len(history.history['loss']),
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'lookback': lookback
+        }
     
-    def predict_next_days(self, data: pd.DataFrame, 
-                         method: str = 'sma',
-                         lookback: int = 30,
-                         n_days: int = 7) -> Dict:
+    def predict(self, data: pd.DataFrame, n_days: int = 7) -> Dict:
         """
-        Predict next n days of stock prices.
+        Predict next n days using trained LSTM model.
         
         Args:
-            data: DataFrame with stock data
-            method: Prediction method ('sma', 'exp', 'lr')
-            lookback: Number of days to use for features
+            data: DataFrame with data
             n_days: Number of days to predict
             
         Returns:
-            Dictionary with predictions
+            Predictions dictionary
         """
+        if not TF_AVAILABLE:
+            return {'error': 'TensorFlow not available'}
+        
+        if 'Close' not in data.columns:
+            return {'error': 'Data must contain Close column'}
+        
+        close_prices = data['Close'].values.reshape(-1, 1)
+        
+        # If not trained, train first
+        if not self.trained:
+            train_result = self.train(data)
+            if 'error' in train_result:
+                return train_result
+        
+        # Normalize data
+        scaled_data = (close_prices - self.min_val) / (self.max_val - self.min_val)
+        
+        # Use last lookback days to start prediction
+        last_sequence = scaled_data[-self.lookback:].reshape(1, self.lookback, 1)
+        
+        predictions = []
+        current_sequence = last_sequence.copy()
+        
+        for _ in range(n_days):
+            # Predict next day
+            pred = self.model.predict(current_sequence, verbose=0)[0, 0]
+            predictions.append(pred)
+            
+            # Update sequence for next prediction
+            current_sequence = np.roll(current_sequence, -1, axis=1)
+            current_sequence[0, -1, 0] = pred
+        
+        # Inverse transform predictions
+        predictions = np.array(predictions).reshape(-1, 1)
+        predictions = predictions * (self.max_val - self.min_val) + self.min_val
+        predictions = predictions.flatten().tolist()
+        
+        # Generate future dates
+        last_date = data.index[-1]
+        future_dates = pd.date_range(start=last_date + timedelta(days=1), 
+                                     periods=n_days, freq='D')
+        
+        return {
+            'dates': [d.strftime('%Y-%m-%d') for d in future_dates],
+            'predictions': predictions,
+            'method': 'lstm',
+            'last_known_price': float(close_prices[-1]),
+            'trained': self.trained
+        }
+    
+    def predict_with_confidence(self, data: pd.DataFrame, n_days: int = 7) -> Dict:
+        """
+        Predict with confidence intervals using Monte Carlo dropout.
+        
+        Args:
+            data: DataFrame with data
+            n_days: Number of days to predict
+            
+        Returns:
+            Predictions with confidence intervals
+        """
+        if not TF_AVAILABLE:
+            return self.predict(data, n_days)
+        
+        if 'Close' not in data.columns:
+            return {'error': 'Data must contain Close column'}
+        
+        close_prices = data['Close'].values.reshape(-1, 1)
+        
+        # If not trained, train first
+        if not self.trained:
+            train_result = self.train(data)
+            if 'error' in train_result:
+                return train_result
+        
+        # Normalize data
+        scaled_data = (close_prices - self.min_val) / (self.max_val - self.min_val)
+        
+        # Use last lookback days
+        last_sequence = scaled_data[-self.lookback:].reshape(1, self.lookback, 1)
+        
+        # Multiple predictions with dropout (Monte Carlo)
+        n_samples = 10
+        all_predictions = []
+        
+        for _ in range(n_samples):
+            current_seq = last_sequence.copy()
+            preds = []
+            
+            for _ in range(n_days):
+                pred = self.model.predict(current_seq, verbose=0)[0, 0]
+                preds.append(pred)
+                current_seq = np.roll(current_seq, -1, axis=1)
+                current_seq[0, -1, 0] = pred
+            
+            # Inverse transform
+            preds = np.array(preds).reshape(-1, 1)
+            preds = preds * (self.max_val - self.min_val) + self.min_val
+            preds = preds.flatten()
+            all_predictions.append(preds)
+        
+        all_predictions = np.array(all_predictions)
+        
+        # Calculate mean and std
+        mean_predictions = np.mean(all_predictions, axis=0)
+        std_predictions = np.std(all_predictions, axis=0)
+        
+        # Generate future dates
+        last_date = data.index[-1]
+        future_dates = pd.date_range(start=last_date + timedelta(days=1), 
+                                     periods=n_days, freq='D')
+        
+        return {
+            'dates': [d.strftime('%Y-%m-%d') for d in future_dates],
+            'predictions': mean_predictions.tolist(),
+            'upper_bound': (mean_predictions + 1.96 * std_predictions).tolist(),
+            'lower_bound': (mean_predictions - 1.96 * std_predictions).tolist(),
+            'method': 'lstm',
+            'last_known_price': float(close_prices[-1]),
+            'confidence': '95%'
+        }
+
+
+class TechnicalIndicatorCalculator:
+    """Calculate comprehensive technical indicators."""
+    
+    @staticmethod
+    def calculate_all(df: pd.DataFrame) -> Dict:
+        """Calculate all technical indicators."""
+        if 'Close' not in df.columns:
+            return {'error': 'Data must contain Close column'}
+        
+        close = df['Close']
+        high = df['High'] if 'High' in df.columns else close
+        low = df['Low'] if 'Low' in df.columns else close
+        volume = df['Volume'] if 'Volume' in df.columns else None
+        
+        # Moving Averages
+        sma_20 = close.rolling(window=20).mean()
+        sma_50 = close.rolling(window=50).mean()
+        sma_200 = close.rolling(window=200).mean()
+        
+        ema_12 = close.ewm(span=12, adjust=False).mean()
+        ema_26 = close.ewm(span=26, adjust=False).mean()
+        
+        # MACD
+        macd = ema_12 - ema_26
+        macd_signal = macd.ewm(span=9, adjust=False).mean()
+        macd_hist = macd - macd_signal
+        
+        # RSI
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # Bollinger Bands
+        sma_20_val = close.rolling(window=20).mean()
+        std_20 = close.rolling(window=20).std()
+        bb_upper = sma_20_val + (std_20 * 2)
+        bb_middle = sma_20_val
+        bb_lower = sma_20_val - (std_20 * 2)
+        
+        # Stochastic
+        low_14 = low.rolling(window=14).min()
+        high_14 = high.rolling(window=14).max()
+        stochastic = 100 * (close - low_14) / (high_14 - low_14)
+        
+        # Average True Range
+        if 'High' in df.columns and 'Low' in df.columns:
+            high_low = high - low
+            high_close = np.abs(high - close.shift())
+            low_close = np.abs(low - close)
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = true_range.rolling(window=14).mean()
+        else:
+            atr = None
+        
+        # On-Balance Volume
+        if volume is not None:
+            obv = (np.sign(close.diff()) * volume).fillna(0).cumsum()
+        else:
+            obv = None
+        
+        # Return all indicators
+        return {
+            'sma_20': sma_20.dropna().tolist(),
+            'sma_50': sma_50.dropna().tolist(),
+            'sma_200': sma_200.dropna().tolist(),
+            'ema_12': ema_12.dropna().tolist(),
+            'ema_26': ema_26.dropna().tolist(),
+            'macd': macd.dropna().tolist(),
+            'macd_signal': macd_signal.dropna().tolist(),
+            'macd_hist': macd_hist.dropna().tolist(),
+            'rsi': rsi.dropna().tolist(),
+            'bb_upper': bb_upper.dropna().tolist(),
+            'bb_middle': bb_middle.dropna().tolist(),
+            'bb_lower': bb_lower.dropna().tolist(),
+            'stochastic': stochastic.dropna().tolist(),
+            'atr': atr.dropna().tolist() if atr is not None else [],
+            'obv': obv.dropna().tolist() if obv is not None else [],
+            'latest': {
+                'sma_20': float(sma_20.iloc[-1]) if not pd.isna(sma_20.iloc[-1]) else None,
+                'sma_50': float(sma_50.iloc[-1]) if not pd.isna(sma_50.iloc[-1]) else None,
+                'sma_200': float(sma_200.iloc[-1]) if not pd.isna(sma_200.iloc[-1]) else None,
+                'ema_12': float(ema_12.iloc[-1]) if not pd.isna(ema_12.iloc[-1]) else None,
+                'ema_26': float(ema_26.iloc[-1]) if not pd.isna(ema_26.iloc[-1]) else None,
+                'macd': float(macd.iloc[-1]) if not pd.isna(macd.iloc[-1]) else None,
+                'macd_signal': float(macd_signal.iloc[-1]) if not pd.isna(macd_signal.iloc[-1]) else None,
+                'rsi': float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else None,
+                'bb_upper': float(bb_upper.iloc[-1]) if not pd.isna(bb_upper.iloc[-1]) else None,
+                'bb_middle': float(bb_middle.iloc[-1]) if not pd.isna(bb_middle.iloc[-1]) else None,
+                'bb_lower': float(bb_lower.iloc[-1]) if not pd.isna(bb_lower.iloc[-1]) else None,
+                'stochastic': float(stochastic.iloc[-1]) if not pd.isna(stochastic.iloc[-1]) else None,
+                'atr': float(atr.iloc[-1]) if atr is not None and not pd.isna(atr.iloc[-1]) else None,
+            }
+        }
+
+
+class MarketAnalyzer:
+    """Main class for market analysis and visualization."""
+    
+    def __init__(self):
+        self.fetcher = StockDataFetcher()
+        self.visualizer = MarketVisualizer()
+        self.lstm_predictor = LSTMPredictor()
+        self.technical_calculator = TechnicalIndicatorCalculator()
+    
+    def analyze_stocks(self, symbols: List[str] = None, 
+                      category: str = 'tech') -> Dict:
+        """Analyze stocks."""
+        if symbols is None:
+            symbols = StockDataFetcher.DEFAULT_STOCKS.get(category, 
+                        StockDataFetcher.DEFAULT_STOCKS['tech'])
+        
+        print(f"Fetching stock data for: {symbols}")
+        data = self.fetcher.fetch_multiple(symbols)
+        
+        # Create visualizations
+        charts = {
+            'price_chart': self.visualizer.create_price_chart(data, f"Stock Prices - {category.title()}"),
+            'comparison_chart': self.visualizer.create_comparison_chart(data)
+        }
+        
+        # Get current info
+        info = {symbol: self.fetcher.get_info(symbol) for symbol in data.keys()}
+        
+        return {
+            'type': 'stocks',
+            'category': category,
+            'symbols': list(data.keys()),
+            'data': {k: v.to_dict(orient='records') for k, v in data.items()},
+            'info': info,
+            'charts': charts
+        }
+    
+    def analyze_currencies(self, symbols: List[str] = None,
+                          category: str = 'major') -> Dict:
+        """Analyze currencies."""
+        if symbols is None:
+            symbols = StockDataFetcher.DEFAULT_CURRENCIES.get(category,
+                        StockDataFetcher.DEFAULT_CURRENCIES['major'])
+        
+        print(f"Fetching currency data for: {symbols}")
+        data = self.fetcher.fetch_multiple(symbols)
+        
+        # Create visualizations
+        charts = {
+            'price_chart': self.visualizer.create_price_chart(data, f"Currency Rates - {category.title()}"),
+            'comparison_chart': self.visualizer.create_comparison_chart(data)
+        }
+        
+        # Get current info
+        info = {}
+        for symbol, df in data.items():
+            if df is not None and not df.empty:
+                info[symbol] = {
+                    'symbol': symbol,
+                    'price': float(df['Close'].iloc[-1]),
+                    'change': float(df['Close'].iloc[-1] - df['Close'].iloc[-2]) if len(df) > 1 else 0,
+                    'high': float(df['High'].max()),
+                    'low': float(df['Low'].min())
+                }
+        
+        return {
+            'type': 'currencies',
+            'category': category,
+            'symbols': list(data.keys()),
+            'data': {k: v.to_dict(orient='records') for k, v in data.items()},
+            'info': info,
+            'charts': charts
+        }
+    
+    def analyze_minerals(self, symbols: List[str] = None,
+                        category: str = 'precious') -> Dict:
+        """Analyze minerals/commodities."""
+        if symbols is None:
+            symbols = StockDataFetcher.DEFAULT_MINERALS.get(category,
+                        StockDataFetcher.DEFAULT_MINERALS['precious'])
+        
+        print(f"Fetching minerals data for: {symbols}")
+        data = self.fetcher.fetch_multiple(symbols)
+        
+        # Create visualizations
+        charts = {
+            'price_chart': self.visualizer.create_price_chart(data, f"Commodities - {category.title()}"),
+            'comparison_chart': self.visualizer.create_comparison_chart(data)
+        }
+        
+        # Get current info
+        info = {}
+        for symbol, df in data.items():
+            if df is not None and not df.empty:
+                name_map = {
+                    'GC=F': 'Gold', 'SI=F': 'Silver', 'PL=F': 'Platinum', 'PA=F': 'Palladium',
+                    'CL=F': 'Crude Oil', 'NG=F': 'Natural Gas', 'RB=F': 'Gasoline', 'HO=F': 'Heating Oil',
+                    'ZC=F': 'Corn', 'ZW=F': 'Wheat', 'ZS=F': 'Soybeans', 'KC=F': 'Coffee'
+                }
+                info[symbol] = {
+                    'symbol': symbol,
+                    'name': name_map.get(symbol, symbol),
+                    'price': float(df['Close'].iloc[-1]),
+                    'change': float(df['Close'].iloc[-1] - df['Close'].iloc[-2]) if len(df) > 1 else 0,
+                    'high': float(df['High'].max()),
+                    'low': float(df['Low'].min())
+                }
+        
+        return {
+            'type': 'minerals',
+            'category': category,
+            'symbols': list(data.keys()),
+            'data': {k: v.to_dict(orient='records') for k, v in data.items()},
+            'info': info,
+            'charts': charts
+        }
+    
+    def predict_future(self, symbol: str, n_days: int = 7,
+                      use_lstm: bool = True) -> Dict:
+        """Predict future prices for a symbol."""
+        print(f"Fetching data for {symbol}...")
+        data = self.fetcher.fetch_data(symbol, period='1y')
+        
+        if data is None or data.empty:
+            return {'error': f'Failed to fetch data for {symbol}'}
+        
+        print(f"Making predictions for next {n_days} days...")
+        
+        if use_lstm and TF_AVAILABLE:
+            predictions = self.lstm_predictor.predict_with_confidence(data, n_days)
+        else:
+            # Simple prediction methods
+            predictor = StockPredictor()
+            predictions = predictor.predict_next_days(data, method='lr', n_days=n_days)
+        
+        # Create visualization
+        chart = self.visualizer.create_prediction_chart(data, predictions)
+        
+        # Calculate technical indicators
+        indicators = self.technical_calculator.calculate_all(data)
+        
+        return {
+            'symbol': symbol,
+            'predictions': predictions,
+            'technical_indicators': indicators['latest'],
+            'chart': chart,
+            'current_price': float(data['Close'].iloc[-1])
+        }
+    
+    def generate_report(self, symbols: List[str] = None) -> Dict:
+        """Generate comprehensive market report."""
+        if symbols is None:
+            symbols = ['AAPL', 'GOOGL', 'MSFT', 'GC=F', 'EURUSD=X']
+        
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'stocks': {},
+            'currencies': {},
+            'minerals': {},
+            'predictions': {}
+        }
+        
+        # Analyze each category
+        for symbol in symbols:
+            data = self.fetcher.fetch_data(symbol)
+            if data is not None and not data.empty:
+                # Determine type
+                if '=X' in symbol:
+                    category = 'currencies'
+                elif '=F' in symbol:
+                    category = 'minerals'
+                else:
+                    category = 'stocks'
+                
+                # Get info and indicators
+                info = self.fetcher.get_info(symbol)
+                indicators = self.technical_calculator.calculate_all(data)
+                
+                # Make prediction
+                predictor = LSTMPredictor()
+                prediction = predictor.predict(data, n_days=5)
+                
+                report[category][symbol] = {
+                    'info': info,
+                    'current_price': float(data['Close'].iloc[-1]),
+                    'change_1d': float(data['Close'].iloc[-1] - data['Close'].iloc[-2]) if len(data) > 1 else 0,
+                    'change_1w': float(data['Close'].iloc[-1] - data['Close'].iloc[-6]) if len(data) > 5 else 0,
+                    'change_1m': float(data['Close'].iloc[-1] - data['Close'].iloc[-21]) if len(data) > 20 else 0,
+                    'volume': float(data['Volume'].iloc[-1]) if 'Volume' in data.columns else 0,
+                    'indicators': indicators['latest'],
+                    'prediction': prediction
+                }
+        
+        return report
+
+
+class StockPredictor:
+    """Simple stock predictor for fallback methods."""
+    
+    def predict_next_days(self, data: pd.DataFrame, method: str = 'lr',
+                         lookback: int = 30, n_days: int = 7) -> Dict:
+        """Simple prediction method."""
         if 'Close' not in data.columns:
             raise ValueError("Data must contain 'Close' column")
         
         close_prices = data['Close'].values
         
-        if method == 'sma':
-            # Simple moving average
-            window = min(lookback, len(close_prices) // 2)
-            last_sma = pd.Series(close_prices[-window:]).mean()
-            predictions = np.full(n_days, last_sma)
-        elif method == 'exp':
-            # Exponential smoothing
-            alpha = 0.3
-            last_smoothed = close_prices[-1]
-            for i in range(1, len(close_prices)):
-                last_smoothed = alpha * close_prices[i] + (1 - alpha) * last_smoothed
-            predictions = np.full(n_days, last_smoothed)
-        elif method == 'lr':
-            # Linear regression
+        if method == 'lr':
+            # Simple linear regression
             try:
-                X, y = self.prepare_data(data, lookback)
                 from sklearn.linear_model import LinearRegression
+                X = np.arange(len(close_prices)).reshape(-1, 1)
+                y = close_prices
                 model = LinearRegression()
-                model.fit(X[:-1], y[:-1])
+                model.fit(X, y)
                 
-                # Use last window for prediction
-                last_features = close_prices[-lookback:].reshape(1, -1)
-                predictions = []
-                current = last_features.copy()
-                
-                for _ in range(n_days):
-                    pred = model.predict(current)[0]
-                    predictions.append(pred)
-                    current = np.roll(current, -1)
-                    current[0, -1] = pred
-                
-                predictions = np.array(predictions)
+                # Predict next n days
+                future_X = np.arange(len(close_prices), len(close_prices) + n_days).reshape(-1, 1)
+                predictions = model.predict(future_X)
             except:
                 predictions = np.full(n_days, close_prices[-1])
         else:
             predictions = np.full(n_days, close_prices[-1])
         
         # Generate future dates
-        last_date = data.index[-1] if hasattr(data.index, '__getitem__') else datetime.now()
+        last_date = data.index[-1]
         future_dates = pd.date_range(start=last_date + timedelta(days=1), 
                                      periods=n_days, freq='D')
         
@@ -354,119 +964,104 @@ class StockPredictor:
             'method': method,
             'last_known_price': float(close_prices[-1])
         }
-    
-    def calculate_technical_indicators(self, data: pd.DataFrame) -> Dict:
-        """
-        Calculate technical indicators.
-        
-        Args:
-            data: DataFrame with stock data
-            
-        Returns:
-            Dictionary with technical indicators
-        """
-        if 'Close' not in data.columns:
-            raise ValueError("Data must contain 'Close' column")
-        
-        close = data['Close']
-        high = data['High'] if 'High' in data.columns else close
-        low = data['Low'] if 'Low' in data.columns else close
-        volume = data['Volume'] if 'Volume' in data.columns else None
-        
-        # Moving averages
-        sma_20 = close.rolling(window=20).mean()
-        sma_50 = close.rolling(window=50).mean()
-        sma_200 = close.rolling(window=200).mean()
-        
-        # Exponential moving averages
-        ema_12 = close.ewm(span=12, adjust=False).mean()
-        ema_26 = close.ewm(span=26, adjust=False).mean()
-        
-        # MACD
-        macd = ema_12 - ema_26
-        signal_line = macd.ewm(span=9, adjust=False).mean()
-        
-        # RSI
-        delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        # Bollinger Bands
-        sma_20_val = close.rolling(window=20).mean()
-        std_20 = close.rolling(window=20).std()
-        upper_band = sma_20_val + (std_20 * 2)
-        lower_band = sma_20_val - (std_20 * 2)
-        
-        # Average True Range (ATR)
-        if 'High' in data.columns and 'Low' in data.columns:
-            high_low = high - low
-            high_close = np.abs(high - close.shift())
-            low_close = np.abs(low - close)
-            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            atr = true_range.rolling(window=14).mean()
-        else:
-            atr = None
-        
-        return {
-            'sma_20': sma_20.iloc[-1] if not pd.isna(sma_20.iloc[-1]) else None,
-            'sma_50': sma_50.iloc[-1] if not pd.isna(sma_50.iloc[-1]) else None,
-            'sma_200': sma_200.iloc[-1] if not pd.isna(sma_200.iloc[-1]) else None,
-            'ema_12': ema_12.iloc[-1] if not pd.isna(ema_12.iloc[-1]) else None,
-            'ema_26': ema_26.iloc[-1] if not pd.isna(ema_26.iloc[-1]) else None,
-            'macd': macd.iloc[-1] if not pd.isna(macd.iloc[-1]) else None,
-            'macd_signal': signal_line.iloc[-1] if not pd.isna(signal_line.iloc[-1]) else None,
-            'rsi': rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else None,
-            'bollinger_upper': upper_band.iloc[-1] if not pd.isna(upper_band.iloc[-1]) else None,
-            'bollinger_lower': lower_band.iloc[-1] if not pd.isna(lower_band.iloc[-1]) else None,
-            'atr': atr.iloc[-1] if atr is not None and not pd.isna(atr.iloc[-1]) else None
-        }
 
 
-def fetch_stock_data(symbol: str, period: str = '1y', 
-                    interval: str = '1d') -> dict:
-    """Fetch stock data and return as dictionary."""
-    fetcher = StockDataFetcher()
-    df = fetcher.fetch_stock_data(symbol, period, interval)
+def main():
+    """Main function to run the analysis."""
+    print("=" * 60)
+    print("STOCK MARKET ANALYSIS SYSTEM")
+    print("=" * 60)
     
-    if df is None or df.empty:
-        return {'error': 'Failed to fetch data'}
+    # Create analyzer
+    analyzer = MarketAnalyzer()
+    
+    # Check if yfinance is available
+    if not YFINANCE_AVAILABLE:
+        print("\n⚠️  yfinance not installed. Using sample data.")
+        print("Install with: pip install yfinance")
+    
+    if not TF_AVAILABLE:
+        print("\n⚠️  TensorFlow not installed. LSTM predictions will use fallback methods.")
+        print("Install with: pip install tensorflow")
+    
+    print("\n" + "=" * 60)
+    print("1. STOCK MARKET ANALYSIS")
+    print("=" * 60)
+    
+    # Analyze tech stocks
+    print("\n📈 Analyzing Tech Stocks...")
+    stocks_analysis = analyzer.analyze_stocks(category='tech')
+    print(f"✅ Found {len(stocks_analysis['symbols'])} stocks")
+    
+    # Display stock info
+    print("\nCurrent Stock Prices:")
+    for symbol, info in stocks_analysis['info'].items():
+        print(f"  {symbol}: ${info['price']:.2f} ({info.get('change_percent', 0):+.2f}%)")
+    
+    print("\n" + "=" * 60)
+    print("2. CURRENCY MARKET ANALYSIS")
+    print("=" * 60)
+    
+    # Analyze major currencies
+    print("\n💱 Analyzing Major Currencies...")
+    currency_analysis = analyzer.analyze_currencies(category='major')
+    print(f"✅ Found {len(currency_analysis['symbols'])} currency pairs")
+    
+    # Display currency info
+    print("\nCurrent Exchange Rates:")
+    for symbol, info in currency_analysis['info'].items():
+        name = symbol.replace('=X', '')
+        print(f"  {name}: {info['price']:.4f}")
+    
+    print("\n" + "=" * 60)
+    print("3. COMMODITIES ANALYSIS")
+    print("=" * 60)
+    
+    # Analyze precious metals
+    print("\n⛏️  Analyzing Precious Metals...")
+    minerals_analysis = analyzer.analyze_minerals(category='precious')
+    print(f"✅ Found {len(minerals_analysis['symbols'])} commodities")
+    
+    # Display commodity info
+    print("\nCurrent Commodity Prices:")
+    for symbol, info in minerals_analysis['info'].items():
+        print(f"  {info['name']}: ${info['price']:.2f}")
+    
+    print("\n" + "=" * 60)
+    print("4. PRICE PREDICTIONS")
+    print("=" * 60)
+    
+    # Predict for a major stock
+    print("\n🔮 Predicting AAPL stock price for next 7 days...")
+    prediction = analyzer.predict_future('AAPL', n_days=7, use_lstm=True)
+    
+    if 'error' not in prediction:
+        print(f"\nCurrent Price: ${prediction['current_price']:.2f}")
+        print("\nPredicted Prices:")
+        for i, (date, price) in enumerate(zip(prediction['predictions']['dates'], 
+                                              prediction['predictions']['predictions'])):
+            print(f"  Day {i+1} ({date}): ${price:.2f}")
+        
+        if 'rsi' in prediction['technical_indicators']:
+            print(f"\nTechnical Indicators:")
+            print(f"  RSI: {prediction['technical_indicators']['rsi']:.2f}")
+            print(f"  MACD: {prediction['technical_indicators']['macd']:.4f}")
+            print(f"  SMA 20: ${prediction['technical_indicators']['sma_20']:.2f}")
+            print(f"  SMA 50: ${prediction['technical_indicators']['sma_50']:.2f}")
+    else:
+        print(f"⚠️  {prediction['error']}")
+    
+    print("\n" + "=" * 60)
+    print("ANALYSIS COMPLETE")
+    print("=" * 60)
+    print("\n📊 Visualizations have been created and can be displayed")
+    print("Run in Jupyter notebook to see interactive charts")
     
     return {
-        'symbol': symbol,
-        'data': df.to_dict(orient='records'),
-        'dates': df.index.strftime('%Y-%m-%d').tolist(),
-        'columns': df.columns.tolist()
+        'stocks': stocks_analysis,
+        'currencies': currency_analysis,
+        'minerals': minerals_analysis,
+        'predictions': prediction if 'error' not in prediction else None
     }
 
 
-def get_stock_info(symbol: str) -> dict:
-    """Get stock information."""
-    fetcher = StockDataFetcher()
-    return fetcher.get_stock_info(symbol)
-
-
-def predict_stock(symbol: str, method: str = 'sma', 
-                n_days: int = 7) -> dict:
-    """Predict stock prices."""
-    fetcher = StockDataFetcher()
-    df = fetcher.fetch_stock_data(symbol)
-    
-    if df is None or df.empty:
-        return {'error': 'Failed to fetch data'}
-    
-    predictor = StockPredictor()
-    return predictor.predict_next_days(df, method=method, n_days=n_days)
-
-
-def get_technical_indicators(symbol: str) -> dict:
-    """Get technical indicators for a stock."""
-    fetcher = StockDataFetcher()
-    df = fetcher.fetch_stock_data(symbol)
-    
-    if df is None or df.empty:
-        return {'error': 'Failed to fetch data'}
-    
-    predictor = StockPredictor()
-    return predictor.calculate_technical_indicators(df)
