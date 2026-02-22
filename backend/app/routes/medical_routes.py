@@ -2,6 +2,9 @@ from flask import Blueprint, jsonify, request
 import numpy as np
 import json
 from ..services.medical_service import get_medical_service
+from ..services.eeg_service import get_eeg_service
+
+
 
 medical_bp = Blueprint('medical', __name__)
 
@@ -126,3 +129,30 @@ def get_abnormalities():
     """Get list of detectable abnormalities"""
     abnormalities = medical_service.get_abnormalities()
     return jsonify({'abnormalities': abnormalities})
+
+
+@medical_bp.route('/eeg/predict', methods=['POST'])
+def predict_eeg():
+    """Predict EEG abnormality from uploaded signal data."""
+    data = request.get_json()
+    if not data or 'data' not in data:
+        return jsonify({'error': 'Missing data field'}), 400
+
+    try:
+        temperature = data.get('temperature', 1.0)
+        eeg_service = get_eeg_service()
+        prediction = eeg_service.predict(data, temperature=temperature)
+        return jsonify(prediction)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@medical_bp.route('/eeg/status', methods=['GET'])
+def eeg_status():
+    """Check if EEG models are loaded."""
+    eeg_service = get_eeg_service()
+    return jsonify({
+        'biot_loaded': eeg_service.biot_loader is not None,
+        'rf_loaded': eeg_service.rf_loader is not None,
+        'models_dir': str(eeg_service.models_dir)
+    })
