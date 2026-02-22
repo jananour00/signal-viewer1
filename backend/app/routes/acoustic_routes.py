@@ -71,35 +71,35 @@ def delete_measurement(measurement_id):
     return jsonify({'error': 'Measurement not found'}), 404
 
 
-# =====================================================
-# NEW ENDPOINTS FOR DOPPLER EFFECT AND VEHICLE ANALYSIS
-# =====================================================
+# Doppler effect and vehicle analysis endpoints
 
 @acoustic_bp.route('/doppler/generate', methods=['POST'])
 def generate_doppler_sound():
+
     """
-    Generate a synthetic vehicle passing sound with Doppler effect.
-    
+    Generate synthetic vehicle passing sound with Doppler effect.
+
     Request body:
     {
-        "velocity": float,  # Vehicle velocity in m/s (10-50)
-        "frequency": float, # Horn/source frequency in Hz (200-1000)
-        "duration": float,  # Duration in seconds (default: 5.0)
-        "sample_rate": int  # Sample rate in Hz (default: 44100)
+        "velocity": float,     # Vehicle velocity in m/s (default: 30.0)
+        "frequency": float,    # Horn frequency in Hz (default: 440.0)
+        "duration": float,     # Duration in seconds (default: 5.0)
+        "sample_rate": int     # Sample rate in Hz (default: 44100)
     }
     """
+
     data = request.get_json()
-    
     if not data:
         return jsonify({'error': 'Missing request body'}), 400
-    
-    velocity = data.get('velocity', 30.0)  # Default 30 m/s (~108 km/h)
-    frequency = data.get('frequency', 440.0)  # Default 440 Hz (A4 note)
+
+    velocity = data.get('velocity', 30.0)
+    frequency = data.get('frequency', 440.0)
     duration = data.get('duration', 5.0)
     sample_rate = data.get('sample_rate', 44100)
-    
+
     try:
-        result = acoustic_service.generate_doppler_sound(
+        # Use the new function that returns base64
+        result = acoustic_service.generate_doppler_sound_base64(
             velocity=velocity,
             frequency=frequency,
             duration=duration,

@@ -2,8 +2,13 @@
 Acoustic Service for Signal Processing
 Provides service layer for acoustic signal processing
 """
-
+import io
+import base64
+from scipy.io import wavfile
 import numpy as np
+from scipy import signal
+
+
 from ..models.acoustic_model import (
     generate_vehicle_passing_sound,
     analyze_vehicle_sound,
@@ -22,6 +27,34 @@ class AcousticService:
         self.vehicle_analyzer = VehicleSoundAnalyzer()
         self.drone_detector = DroneDetector()
     
+
+
+    def generate_doppler_sound_base64(self, velocity, frequency, duration=5.0, sample_rate=44100):
+        """
+        Generate Doppler sound and return base64 WAV for browser playback.
+        """
+        # Step 1: Get raw audio from your existing function
+        raw = generate_vehicle_passing_sound(velocity, frequency, duration, sample_rate)
+        audio_array = np.array(raw["audio"], dtype=np.float32)  # make sure it's float32
+
+        # Step 2: Scale to int16 for WAV
+        audio_int16 = np.int16(audio_array / np.max(np.abs(audio_array)) * 32767)
+
+        # Step 3: Write WAV to memory
+        buffer = io.BytesIO()
+        wavfile.write(buffer, sample_rate, audio_int16)
+        buffer.seek(0)
+
+        # Step 4: Encode as base64
+        audio_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+
+        # Step 5: Return JSON
+        return {
+            "audio_base64": audio_base64,
+            "sample_rate": sample_rate,
+            "duration": duration
+        }
+
     def generate_doppler_sound(self, velocity: float, frequency: float, 
                                duration: float = 5.0, 
                                sample_rate: int = 44100) -> dict:
@@ -74,7 +107,12 @@ class AcousticService:
         max_val = np.max(np.abs(audio_array))
         if max_val > 1.0:
             audio_array = audio_array / max_val
+
         
+        # Pre-filter to isolate vehicle frequency range (80Hz - 4kHz)
+        sos = signal.butter(4, [80, 4000], btype='band', fs=sample_rate, output='sos')
+        audio_array = signal.sosfilt(sos, audio_array)
+                
         return analyze_vehicle_sound(audio_array.tolist(), sample_rate)
     
     def detect_unmanned_vehicle(self, audio_data: list, 
@@ -153,8 +191,7 @@ class AcousticService:
         Returns:
             Spectrogram data
         """
-        from scipy import signal
-        
+       
         audio_array = np.array(audio_data, dtype=np.float64)
         
         # Compute spectrogram
