@@ -24,68 +24,61 @@ start_frontend.bat  # Frontend at http://localhost:3000
 
 ---
 
-## Deploy to Vercel (Frontend Only)
+## Deploy to Vercel (Frontend + Backend)
 
-The frontend can be deployed to Vercel. Note: The LSTM prediction requires the backend to run.
+Both frontend and backend can be deployed to Vercel.
 
 ### Steps:
 
-1. **Install Vercel CLI** (optional):
+1. **Install Vercel CLI**:
 ```
-bash
 npm i -g vercel
 ```
 
-2. **Deploy Frontend**:
+2. **Deploy from Root Directory**:
 ```
-bash
-cd frontend
 vercel
 ```
 
 3. **Follow Prompts**:
-   - Set up and deploy? → Yes
    - Which scope? → Your Vercel username
+   - Link to existing project? → No (or create new)
+   - Project name? → signal-viewer
+   - Directory? → ./
    - Want to modify settings? → No
 
-4. **Configure API URL**:
+4. **Configure API URL** (if needed):
    - Edit `frontend/src/services/api.js`
-   - Change `API_BASE_URL` to your backend URL:
+   - Change `API_BASE_URL` to your Vercel backend URL:
    
 ```
 javascript
-   const API_BASE_URL = 'https://your-backend.herokuapp.com/api';
-   // or use ngrok for testing
-   
+const API_BASE_URL = 'https://signal-viewer.vercel.app/api';
 ```
 
 ---
 
-## Deploy Backend to Heroku (Required for LSTM)
+## Alternative: Deploy Backend to Heroku
 
 ### Steps:
 
 1. **Create Heroku App**:
 ```
-bash
 heroku create your-app-name
 ```
 
 2. **Add Buildpacks**:
 ```
-bash
 heroku buildpacks:add heroku/python
 ```
 
 3. **Deploy**:
 ```
-bash
 git push heroku main
 ```
 
 4. **Set Environment**:
 ```
-bash
 heroku config:set FLASK_ENV=production
 ```
 
