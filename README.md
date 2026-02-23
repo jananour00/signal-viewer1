@@ -101,7 +101,17 @@ heroku config:set FLASK_ENV=production
 6. Choose prediction period (7 Days, 1 Month, 6 Months)
 7. Click Predict button
 
-## Files Created
+## Deployment Files
+
+| File | Description |
+|------|-------------|
+| `vercel.json` | Vercel deployment config |
+| `Dockerfile` | Docker container build |
+| `docker-compose.yml` | Docker Compose orchestration |
+| `Procfile` | Heroku deployment |
+| `deploy.sh` | Docker deployment script |
+
+## Local Scripts
 
 | File | Description |
 |------|-------------|
@@ -109,6 +119,33 @@ heroku config:set FLASK_ENV=production
 | `start_all.bat` | Start both frontend and backend |
 | `start_backend.bat` | Start backend only |
 | `start_frontend.bat` | Start frontend only |
+
+## Deploy with Docker
+
+```
+bash
+# Build and run
+docker-compose up --build -d
+
+# Or use deploy script
+chmod +x deploy.sh
+./deploy.sh
+```
+
+## Deploy to Vercel
+
+```
+bash
+vercel
+```
+
+## Deploy to Heroku
+
+```
+bash
+heroku create your-app-name
+git push heroku main
+```
 
 ## LSTM Speed Optimizations
 
