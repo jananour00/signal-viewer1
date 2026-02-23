@@ -117,5 +117,7 @@ export const microbiomeAPI = {
   getDiseaseSamples: (diseaseName) => api.get(`/microbiome/disease/${diseaseName}`),
   loadData: (nSamples) => api.post('/microbiome/load-data', { n_samples: nSamples }),
 };
-
+export const eegAPI = {
+  predict: (signalData) => api.post('/medical/eeg/predict', signalData),
+};
 export default api;

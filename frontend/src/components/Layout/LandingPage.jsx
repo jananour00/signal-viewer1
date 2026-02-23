@@ -66,12 +66,13 @@ const LandingPage = ({ onFileSelected, onSampleClick, signalType, setSignalType 
   };
 
   // Signal type icons
-  const signalTypes = [
-    { id: 'medical', label: 'Medical ECG/EEG', icon: '❤️', color: '#ff6b6b' },
-    { id: 'acoustic', label: 'Acoustic Sounds', icon: '🎵', color: '#4ecdc4' },
-    { id: 'stock', label: 'Stock Market', icon: '📈', color: '#45b7d1' },
-    { id: 'microbiome', label: 'Microbiome', icon: '🦠', color: '#96ceb4' }
-  ];
+ const signalTypes = [
+  { id: 'medical', label: 'Medical ECG', icon: '❤️', color: '#ff6b6b' },
+  { id: 'eeg', label: 'EEG', icon: '🧠', color: '#9c27b0' },   // <-- add this
+  { id: 'acoustic', label: 'Acoustic Sounds', icon: '🎵', color: '#4ecdc4' },
+  { id: 'stock', label: 'Stock Market', icon: '📈', color: '#45b7d1' },
+  { id: 'microbiome', label: 'Microbiome', icon: '🦠', color: '#96ceb4' }
+];
 
   return (
     <div className="landing-page">

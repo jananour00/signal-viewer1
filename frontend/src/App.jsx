@@ -10,6 +10,7 @@ import RecurrenceViewer from './components/Viewers/RecurrenceViewer';
 import AcousticPage from './components/Pages/AcousticPage';
 import StockPage from './components/Pages/StockPage';
 import MicrobiomePage from './components/Pages/MicrobiomePage';
+import EEGPrediction from './components/Analysis/EEGPrediction';
 import './App.css';
 
 
@@ -263,6 +264,62 @@ function App() {
                     </button>
                   </div>
                 )
+              )}
+              // added eeg part here
+              {activeTab === 'eeg' && (
+  signalData ? (
+    <div className="viewer-container">
+      {/* Quick Stats Bar - same as medical */}
+      <div className="stats-bar">
+        <div className="stat-item">
+          <span className="stat-label">File</span>
+          <span className="stat-value">{signalData.filename}</span>
+        </div>
+        <div className="stat-divider">|</div>
+        <div className="stat-item">
+          <span className="stat-label">Channels</span>
+          <span className="stat-value">{signalData.channels}</span>
+        </div>
+        <div className="stat-divider">|</div>
+        <div className="stat-item">
+          <span className="stat-label">Sampling Rate</span>
+          <span className="stat-value">{signalData.fs} Hz</span>
+        </div>
+        <div className="stat-divider">|</div>
+        <div className="stat-item">
+          <span className="stat-label">Samples</span>
+          <span className="stat-value">{signalData.time?.length || 0}</span>
+        </div>
+        <div className="stat-divider">|</div>
+        <div className="stat-item">
+          <span className="stat-label">Type</span>
+          <span className="stat-value type-badge">EEG</span>
+        </div>
+      </div>
+
+      {/* Viewer */}
+      <div className="viewer-wrapper">
+        {viewType === 'continuous' && <ContinuousViewer data={signalData} />}
+        {viewType === 'xor' && <XORViewer data={signalData} />}
+        {viewType === 'polar' && <PolarViewer data={signalData} />}
+        {viewType === 'recurrence' && <RecurrenceViewer data={signalData} />}
+      </div>
+
+      {/* EEG Prediction */}
+      <div className="ai-section">
+        <EEGPrediction signalData={signalData} />
+      </div>
+    </div>
+  ) : (
+    <div className="no-data">
+      <div className="no-data-icon">🧠</div>
+      <h2>No EEG data loaded</h2>
+      <p>Upload an EEG file from the sidebar to start visualization</p>
+      <button className="upload-prompt-btn" onClick={handleBackToUpload}>
+        Go to Upload Page
+      </button>
+    </div>
+  )
               )}
             </div>
           </main>

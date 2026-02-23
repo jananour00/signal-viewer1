@@ -18,7 +18,8 @@ upload_bp = Blueprint('upload', __name__)
 
 # Simplified extensions
 ALLOWED_EXTENSIONS = {
-    'medical': {'.edf', '.csv', '.mat', '.hea', '.dat'},
+    'medical': {'.edf', '.csv', '.npy', '.mat', '.hea', '.dat'},
+    'eeg': {'.edf', '.csv', '.mat', '.npy', '.hea', '.dat'},  # add this
     'acoustic': {'.wav', '.mp3'},
     'stock': {'.csv', '.xlsx'},
     'microbiome': {'.biom', '.fasta', '.tsv'}
@@ -202,6 +203,28 @@ def process_medical_file(filepath, filename):
                 'type': 'medical',
                 'fs': fs
             }
+        # npy files
+        elif ext == '.npy':
+    # Load the .npy file as the signal data (channels × time)
+            data = np.load(filepath)
+            if data.ndim == 1:
+                data = data.reshape(1, -1)
+            # Check if there's a companion _sfreq.npy file
+            sfreq_path = filepath.replace('.npy', '_sfreq.npy')
+            if os.path.exists(sfreq_path):
+                fs = float(np.load(sfreq_path))
+            else:
+                fs = 200  # default to 200 Hz (your training freq)
+            time = np.arange(data.shape[1]) / fs
+            return {
+                'data': data.tolist(),
+                'time': time.tolist(),
+                'channels': data.shape[0],
+                'channel_names': [f'Channel {i+1}' for i in range(data.shape[0])],
+                'filename': filename,
+                'type': 'medical',  # or 'eeg' based on request type
+                'fs': fs
+            }    
     
     except Exception as e:
         print(f"Error processing medical file: {str(e)}")
@@ -471,6 +494,7 @@ def upload_file():
         # Process based on type (use first file as the primary file)
         processors = {
             'medical': process_medical_file,
+            'eeg': process_medical_file,      # add this
             'acoustic': process_acoustic_file,
             'stock': process_stock_file,
             'microbiome': process_microbiome_file

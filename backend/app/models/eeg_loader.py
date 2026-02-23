@@ -29,7 +29,7 @@ except ImportError:
 # For resampling and feature extraction
 from scipy import signal as sp_signal
 
-CONFIDENCE_THRESHOLD = 0.8
+CONFIDENCE_THRESHOLD = 0.5
 
 class BIOTLoader:
     """
