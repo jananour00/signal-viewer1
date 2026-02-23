@@ -18,14 +18,15 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)"
+      "src": "/api/(.*)",
+      "dest": "backend/app.py"
     },
     {
       "handle": "filesystem"
     },
     {
       "src": "/(.*)",
-      "destination": "/index.html"
+      "dest": "/index.html"
     }
   ],
   "env": {
