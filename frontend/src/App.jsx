@@ -10,7 +10,6 @@ import RecurrenceViewer from './components/Viewers/RecurrenceViewer';
 import AcousticPage from './components/Pages/AcousticPage';
 import StockPage from './components/Pages/StockPage';
 import MicrobiomePage from './components/Pages/MicrobiomePage';
-import EEGPrediction from './components/Analysis/EEGPrediction';
 import './App.css';
 
 
@@ -244,10 +243,6 @@ function App() {
                       {viewType === 'recurrence' && <RecurrenceViewer data={signalData} />}
                     </div>
 
-                    {activeTab === 'medical' && signalData && (
-                    <EEGPrediction signalData={signalData} />
-                    )}
-
                     {/* AI Prediction (for medical signals) */}
                     {signalData && (
                       <div className="ai-section">
@@ -278,4 +273,5 @@ function App() {
 }
 
 export default App;
+
 
